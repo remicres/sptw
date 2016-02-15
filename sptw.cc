@@ -168,7 +168,8 @@ int write_int64(PTIFF *tiff_file,
 }
 
 SPTW_ERROR populate_tile_offsets(PTIFF *tiff_file,
-                                 int64_t tile_size) {
+                                 int64_t tile_size,
+                                 bool tiled = true) {
   MPI_Status status;
   bool big_endian = false;   // Is tiff file big endian?
 
@@ -201,8 +202,14 @@ SPTW_ERROR populate_tile_offsets(PTIFF *tiff_file,
   int64_t entry_offset = doffset + sizeof(int64_t);
 
   int64_t tile_count = 0;
-  const int64_t tile_size_bytes = tile_size * tile_size * tiff_file->band_count
+
+  int64_t tile_size_bytes = tile_size * tiff_file->band_count
       * tiff_file->band_type_size;
+  if (tiled)
+  {
+	  tile_size_bytes *= tile_size;
+  }
+
   int64_t first_tile_offset = 0;
 
   for (int64_t i = 0; i < entry_count; ++i) {
@@ -223,7 +230,7 @@ SPTW_ERROR populate_tile_offsets(PTIFF *tiff_file,
     int64_t entry_data = read_int64(tiff_file, entry_offset+12, big_endian);
 
     // Check if directory type is TIFFTAG_TILEOFFSETS
-    if (entry_tag == TIFFTAG_TILEOFFSETS) {
+    if (entry_tag == TIFFTAG_TILEOFFSETS || entry_tag == TIFFTAG_STRIPOFFSETS) {
       // Read location of first_offset
       int64_t first_offset = read_int64(tiff_file, entry_data, big_endian);
       first_tile_offset = first_offset;
@@ -235,7 +242,7 @@ SPTW_ERROR populate_tile_offsets(PTIFF *tiff_file,
             first_offset+(tile_size_bytes*j),
             big_endian);
       }
-    } else if (entry_tag == TIFFTAG_TILEBYTECOUNTS) {
+    } else if (entry_tag == TIFFTAG_TILEBYTECOUNTS || entry_tag == TIFFTAG_STRIPBYTECOUNTS) {
       for (int64_t j = 1; j < element_count; ++j) {
         write_int64(tiff_file,
                     entry_data+(sizeof(int64_t)*j),
@@ -425,7 +432,16 @@ PTIFF* open_raster(string filename) {
     ptiff->first_strip_offset = *offset;
     ptiff->tiles_across = 1;
     ptiff->tiles_down = ptiff->y_size;
-    ptiff->block_y_size = ptiff->x_size;
+    ptiff->block_y_size = 1;
+
+    // add by Remi for striped images
+    tiles_per_image = ptiff->tiles_across * ptiff->tiles_down;
+    ptiff->tile_offsets = new int64_t[tiles_per_image];
+    for (int i = 0 ; i < ptiff->y_size ; i++)
+    {
+    	ptiff->tile_offsets[i] = offset[0] + i*(ptiff->band_count)*(ptiff->band_type_size)*ptiff->block_x_size;
+    }
+
   }
 
   ptiff->first_strip_offset = *offset;
@@ -520,7 +536,7 @@ int64_t calculate_file_offset(PTIFF *tiff,
   const int64_t tile_index = (raster_x / tiff->block_x_size)
       + (raster_y / tiff->block_y_size) * tiff->tiles_across;
 
-  const auto tiles_per_image = tiff->tiles_across * tiff->tiles_down;
+  const int64_t tiles_per_image = tiff->tiles_across * tiff->tiles_down;
 
   if (tile_index > tiles_per_image) {
       std::cerr << "SPTW: Writing outside of file bounds! Corruption will occur." << std::endl;

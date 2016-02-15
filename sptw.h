@@ -23,7 +23,11 @@
 #include <mpi.h>
 
 #include <string>
+#if HAVE_STDINT_H == 0
 #include <cstdint>
+#else
+#include <stdint.h>
+#endif
 
 using std::string;
 
@@ -90,7 +94,8 @@ namespace sptw {
     };
 
     SPTW_ERROR populate_tile_offsets(PTIFF *tiff_file,
-            int64_t tile_size);
+            int64_t tile_size,
+            bool tiled);
 
     SPTW_ERROR create_raster(string filename,
             int64_t x_size,
